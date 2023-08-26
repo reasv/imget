@@ -1,13 +1,13 @@
 use actix_files::NamedFile;
 use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer, get};
 use actix_web_actors::ws;
-use std::{path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+use std::{path::PathBuf, time::UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 mod change_watcher;
 
 use serde::{Serialize, Deserialize};
-use std::fs::{self, Metadata};
+use std::fs;
 
 #[derive(Serialize)]
 struct FileEntry {
