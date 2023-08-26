@@ -18,13 +18,13 @@ struct FileEntry {
 }
 
 #[derive(Deserialize)]
-struct FileRequestParam {
+struct FolderRequestParam {
     directory: String,
     changed_since: Option<u128>
 }
 
-#[get("/files")]
-async fn get_files(web::Query(params): web::Query<FileRequestParam>) -> Result<HttpResponse, Error> {
+#[get("/folder")]
+async fn get_folder(web::Query(params): web::Query<FolderRequestParam>) -> Result<HttpResponse, Error> {
     let directory = params.directory;
 
     let entries = fs::read_dir(directory)?
@@ -55,8 +55,20 @@ async fn get_files(web::Query(params): web::Query<FileRequestParam>) -> Result<H
     Ok(HttpResponse::Ok().json(entries))
 }
 
+#[derive(Deserialize)]
+struct FileRequestParam {
+    path: String,
+}
+
+#[get("/file")]
+async fn static_files(web::Query(params): web::Query<FileRequestParam>) -> Result<NamedFile, Error> {
+    let path: PathBuf = PathBuf::from(params.path);
+    let file = NamedFile::open(path)?;
+    Ok(file)
+}
+
 #[get("/ws/watch")]
-async fn watch(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, Error> {
+async fn watch_folder(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, Error> {
     let (tx, rx) = mpsc::unbounded_channel();
     // Get a debouncer over notify to watch changes
     let debouncer = change_watcher::get_folder_watcher(tx);
@@ -65,20 +77,13 @@ async fn watch(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, E
     Ok(resp)
 }
 
-#[get("/file/{filename:.*}")]
-async fn static_files(req: HttpRequest) -> Result<NamedFile, Error> {
-    let path: PathBuf = req.match_info().query("filename").parse()?;
-    let file = NamedFile::open(path)?;
-    Ok(file)
-}
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
-            .service(watch)
+            .service(watch_folder)
             .service(static_files)
-            .service(get_files)
+            .service(get_folder)
     })
     .bind("127.0.0.1:8080")?
     .run()
