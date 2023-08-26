@@ -19,11 +19,13 @@ struct FileEntry {
 #[derive(Deserialize)]
 struct FileRequestParam {
     directory: String,
+    changed_since: Option<u128>
 }
 
 #[get("/files")]
 async fn get_files(web::Query(params): web::Query<FileRequestParam>) -> Result<HttpResponse, Error> {
     let directory = params.directory;
+
     let entries = fs::read_dir(directory)?
         .filter_map(|entry| {
             let entry = entry.ok()?;
@@ -34,6 +36,11 @@ async fn get_files(web::Query(params): web::Query<FileRequestParam>) -> Result<H
                 .duration_since(UNIX_EPOCH).ok()?
                 .as_millis();
 
+            if let Some(changed_since) = params.changed_since {
+                if last_modified <= changed_since {
+                    return None
+                }
+            }
             Some(FileEntry {
                 name,
                 is_directory,
