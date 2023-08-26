@@ -1,7 +1,7 @@
 use actix_files::NamedFile;
 use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer, get};
 use actix_web_actors::ws;
-use std::{path::PathBuf, time::UNIX_EPOCH};
+use std::{path::PathBuf, time::UNIX_EPOCH, os::windows::prelude::MetadataExt};
 use tokio::sync::mpsc;
 
 mod change_watcher;
@@ -13,7 +13,8 @@ use std::fs;
 struct FileEntry {
     name: String,
     is_directory: bool,
-    last_modified: u128
+    last_modified: u128,
+    fsize: u64
 }
 
 #[derive(Deserialize)]
@@ -32,10 +33,11 @@ async fn get_files(web::Query(params): web::Query<FileRequestParam>) -> Result<H
             let metadata = entry.metadata().ok()?;
             let is_directory = metadata.is_dir();
             let name = entry.file_name().into_string().ok()?;
+            let fsize = metadata.file_size();
             let last_modified = metadata.modified().ok()?
                 .duration_since(UNIX_EPOCH).ok()?
                 .as_millis();
-
+            
             if let Some(changed_since) = params.changed_since {
                 if last_modified <= changed_since {
                     return None
@@ -44,7 +46,8 @@ async fn get_files(web::Query(params): web::Query<FileRequestParam>) -> Result<H
             Some(FileEntry {
                 name,
                 is_directory,
-                last_modified
+                last_modified,
+                fsize
             })
         })
         .collect::<Vec<_>>();
