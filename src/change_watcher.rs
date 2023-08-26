@@ -1,43 +1,11 @@
-use actix_files::NamedFile;
-use actix_web::http::StatusCode;
-use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer, ResponseError, get};
 use actix_web_actors::ws;
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer, DebouncedEvent};
-use std::path::{PathBuf};
-use std::time::{Duration};
+use std::path::PathBuf;
+use std::time::Duration;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use actix::AsyncContext;
 use actix::StreamHandler;
 use notify::{RecursiveMode,  ReadDirectoryChangesWatcher};
-
-impl ResponseError for ImgetError {
-    fn status_code(&self) -> StatusCode {
-        self.status_code
-    }
-    fn error_response(&self) -> HttpResponse {
-        // Customize the HTTP response for your custom error
-        HttpResponse::InternalServerError().body(self.message.clone())
-    }
-}
-
-#[derive(Debug)]
-struct ImgetError {
-    message: String,
-    status_code: StatusCode
-}
-impl std::fmt::Display for ImgetError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::convert::From<notify::Error> for ImgetError {
-    fn from(err: notify::Error) -> Self {
-        return ImgetError { message: format!("Notify Error: {}", err), status_code: StatusCode::INTERNAL_SERVER_ERROR }
-    }
-}
-
-impl std::error::Error for ImgetError {}
 
 pub fn get_folder_watcher(tx: UnboundedSender<Vec<DebouncedEvent>>) -> Debouncer<ReadDirectoryChangesWatcher> {
     // Select recommended watcher for debouncer.

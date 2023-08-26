@@ -3,11 +3,14 @@ use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer, get};
 use actix_web_actors::ws;
 use std::{path::PathBuf, time::UNIX_EPOCH, os::windows::prelude::MetadataExt};
 use tokio::sync::mpsc;
-
-mod change_watcher;
-
 use serde::{Serialize, Deserialize};
 use std::fs;
+
+mod change_watcher;
+mod utils;
+mod thumbnails;
+mod error;
+use error::ImgetError;
 
 #[derive(Serialize)]
 struct FileEntry {
@@ -67,6 +70,37 @@ async fn static_files(web::Query(params): web::Query<FileRequestParam>) -> Resul
     Ok(file)
 }
 
+#[derive(Deserialize)]
+pub struct ThumbnailRequestParam {
+    path: String,
+    hq: Option<bool>,
+    max_w: Option<u32>,
+    max_h: Option<u32>
+}
+
+#[get("/thumbnail")]
+async fn get_thumbnail(web::Query(params): web::Query<ThumbnailRequestParam>) -> Result<NamedFile, Error> {
+    let path: PathBuf = PathBuf::from(params.path);
+    let max_w = params.max_w.unwrap_or(512);
+    let max_h = params.max_h.unwrap_or(512);
+
+    let img = image::open(path)
+        .map_err(|e| ImgetError::from(e))?;
+
+    let hash = utils::hash_u8_array(img.as_bytes());
+
+    let thumb_path = PathBuf::from(format!("./thumbs/{}-w{}h{}-hq-{}.jpeg", hash, max_w, max_h, params.hq.unwrap_or(false)));
+
+    match NamedFile::open(&thumb_path) {
+        Ok(file) => Ok(file),
+        Err(_) => {
+            thumbnails::generate_thumbnail(img, max_h, max_w, &thumb_path, params.hq)?;
+            let file = NamedFile::open(thumb_path)?;
+            Ok(file)
+        }
+    }
+}
+
 #[get("/ws/watch")]
 async fn watch_folder(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, Error> {
     let (tx, rx) = mpsc::unbounded_channel();
@@ -84,8 +118,9 @@ async fn main() -> std::io::Result<()> {
             .service(watch_folder)
             .service(static_files)
             .service(get_folder)
+            .service(get_thumbnail)
     })
-    .bind("127.0.0.1:8080")?
+    .bind("0.0.0.0:8080")?
     .run()
     .await
 }
