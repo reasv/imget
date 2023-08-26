@@ -101,6 +101,7 @@ impl actix::Actor for WatcherWsActor {
 #[derive(serde::Deserialize, serde::Serialize)]
 struct WatchFolder {
     watch: bool,
+    recursive: bool,
     path: String,
 }
 //{"watch": true, "path": "Q:\\"}
@@ -109,14 +110,20 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WatcherWsActor {
         match msg {
             Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
             Ok(ws::Message::Text(msg)) => {
-                let watch_command: WatchFolder = serde_json::from_slice(&msg.as_bytes()).unwrap();
+                let Ok(watch_command) = serde_json::from_slice::<WatchFolder>(&msg.as_bytes())
+                    else {
+                        eprintln!("Error: Invalid watcher command: {}", msg);
+                        return
+                    };
+
                 if watch_command.watch {
-                    if let Err(e) = self.debouncer.watcher().watch(&PathBuf::from(watch_command.path.clone()), RecursiveMode::NonRecursive) {
-                        println!("Error watching folder ({}): {}", watch_command.path.clone(), e)
+                    let mode = if watch_command.recursive {RecursiveMode::Recursive} else { RecursiveMode::NonRecursive};
+                    if let Err(e) = self.debouncer.watcher().watch(&PathBuf::from(watch_command.path.clone()), mode) {
+                        eprintln!("Error watching folder ({}): {}", watch_command.path.clone(), e)
                     }
                 } else {
                     if let Err(e) = self.debouncer.watcher().unwatch(&PathBuf::from(watch_command.path.clone())) {
-                        println!("Error unwatching folder ({}): {}", watch_command.path, e)
+                        eprintln!("Error unwatching folder ({}): {}", watch_command.path, e)
                     } 
                 }
                 ()
