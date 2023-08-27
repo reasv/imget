@@ -5,6 +5,7 @@ use std::{path::PathBuf, time::UNIX_EPOCH, os::windows::prelude::MetadataExt};
 use tokio::sync::mpsc;
 use serde::{Serialize, Deserialize};
 use std::fs;
+use actix_cors::Cors;
 
 mod change_watcher;
 mod utils;
@@ -111,10 +112,13 @@ async fn watch_folder(req: HttpRequest, stream: web::Payload) -> Result<HttpResp
     Ok(resp)
 }
 
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
+        let cors = Cors::permissive();
         App::new()
+            .wrap(cors)
             .service(watch_folder)
             .service(static_files)
             .service(get_folder)
