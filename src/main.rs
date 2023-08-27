@@ -22,13 +22,13 @@ struct FileEntry {
 
 #[derive(Deserialize)]
 struct FolderRequestParam {
-    directory: String,
+    path: String,
     changed_since: Option<u128>
 }
 
 #[get("/folder")]
 async fn get_folder(web::Query(params): web::Query<FolderRequestParam>) -> Result<HttpResponse, Error> {
-    let directory = params.directory;
+    let directory = params.path;
 
     let entries = fs::read_dir(directory)?
         .filter_map(|entry| {
