@@ -1,7 +1,7 @@
 use actix_files::NamedFile;
 use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer, get, http::StatusCode};
 use actix_web_actors::ws;
-use std::{path::PathBuf, time::UNIX_EPOCH, os::windows::prelude::MetadataExt};
+use std::{path::{PathBuf, self}, time::UNIX_EPOCH, os::windows::prelude::MetadataExt};
 use tokio::sync::mpsc;
 use serde::{Serialize, Deserialize};
 use std::fs;
@@ -18,12 +18,15 @@ struct FileEntry {
     name: String,
     is_directory: bool,
     last_modified: u128,
-    fsize: u64
+    fsize: u64,
+    absolute_path: String,
+    parent_path: String,
 }
 #[derive(Serialize)]
 struct FolderData {
     entries: Vec<FileEntry>,
     absolute_path: String,
+    parent_path: Option<String>,
 }
 #[derive(Deserialize)]
 struct FolderRequestParam {
@@ -34,6 +37,7 @@ struct FolderRequestParam {
 #[get("/folder")]
 async fn get_folder(web::Query(params): web::Query<FolderRequestParam>) -> Result<HttpResponse, Error> {
     let directory = params.path;
+    let absolute_path = get_canonical_path(&directory)?;
 
     let entries = fs::read_dir(&directory)?
         .filter_map(|entry| {
@@ -45,26 +49,36 @@ async fn get_folder(web::Query(params): web::Query<FolderRequestParam>) -> Resul
             let last_modified = metadata.modified().ok()?
                 .duration_since(UNIX_EPOCH).ok()?
                 .as_millis();
-            
+
             if let Some(changed_since) = params.changed_since {
                 if last_modified <= changed_since {
                     return None
                 }
             }
+            let canonical_path = get_canonical_path(path::Path::new(&directory).join(&name).to_str()?).ok()?;
             Some(FileEntry {
                 name,
                 is_directory,
                 last_modified,
-                fsize
+                fsize,
+                absolute_path: canonical_path,
+                parent_path: String::from(&absolute_path)
             })
         })
         .collect::<Vec<_>>();
     
-    let absolute_path = String::from(fs::canonicalize(directory)?.to_str()
-        .ok_or(ImgetError { message: String::from("Directory not found"), status_code: StatusCode::NOT_FOUND})?);
+    let parent_path = path::Path::new(&absolute_path).parent()
+        .filter(|p| p.to_str().is_some())
+        .map(|p| String::from(p.to_str().unwrap_or("")));
 
-    let folder_data = FolderData {entries, absolute_path};
+    let folder_data = FolderData {entries, absolute_path, parent_path};
     Ok(HttpResponse::Ok().json(folder_data))
+}
+
+fn get_canonical_path(path: &str) -> Result<String, Error> {
+    let absolute_path = String::from(fs::canonicalize(path)?.to_str()
+        .ok_or(ImgetError { message: String::from(format!("Path not found: {}", path)), status_code: StatusCode::NOT_FOUND})?);
+    Ok(absolute_path)
 }
 
 #[derive(Deserialize)]
