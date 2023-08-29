@@ -1,84 +1,51 @@
 use actix_files::NamedFile;
-use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer, get, http::StatusCode};
+use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer, get};
 use actix_web_actors::ws;
-use std::{path::{PathBuf, self}, time::UNIX_EPOCH, os::windows::prelude::MetadataExt};
+use std::{path::{PathBuf, self}, fs::Metadata};
 use tokio::sync::mpsc;
-use serde::{Serialize, Deserialize};
+use serde::Deserialize;
 use std::fs;
 use actix_cors::Cors;
 
 mod change_watcher;
+mod archives;
+mod folders;
 mod utils;
 mod thumbnails;
 mod error;
 use error::ImgetError;
 
-#[derive(Serialize)]
-struct FileEntry {
-    name: String,
-    is_directory: bool,
-    last_modified: u128,
-    fsize: u64,
-    absolute_path: String,
-    parent_path: String,
-}
-#[derive(Serialize)]
-struct FolderData {
-    entries: Vec<FileEntry>,
-    absolute_path: String,
-    parent_path: Option<String>,
-}
 #[derive(Deserialize)]
 struct FolderRequestParam {
     path: String,
-    changed_since: Option<u128>
+    changed_since: Option<u128>,
+    archive_access: Option<bool>
 }
 
 #[get("/folder")]
 async fn get_folder(web::Query(params): web::Query<FolderRequestParam>) -> Result<HttpResponse, Error> {
     let directory = params.path;
-    let absolute_path = get_canonical_path(&directory)?;
-
-    let entries = fs::read_dir(&directory)?
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let metadata = entry.metadata().ok()?;
-            let is_directory = metadata.is_dir();
-            let name = entry.file_name().into_string().ok()?;
-            let fsize = metadata.file_size();
-            let last_modified = metadata.modified().ok()?
-                .duration_since(UNIX_EPOCH).ok()?
-                .as_millis();
-
-            if let Some(changed_since) = params.changed_since {
-                if last_modified <= changed_since {
-                    return None
-                }
-            }
-            let canonical_path = get_canonical_path(path::Path::new(&directory).join(&name).to_str()?).ok()?;
-            Some(FileEntry {
-                name,
-                is_directory,
-                last_modified,
-                fsize,
-                absolute_path: canonical_path,
-                parent_path: String::from(&absolute_path)
-            })
-        })
-        .collect::<Vec<_>>();
+    let absolute_path = folders::get_canonical_path(&directory)?;
+    let path_metadata = fs::metadata(&absolute_path)?;
     
-    let parent_path = path::Path::new(&absolute_path).parent()
-        .filter(|p| p.to_str().is_some())
-        .map(|p| String::from(p.to_str().unwrap_or("")));
+    let folder_data;
+    if !path_metadata.is_dir() && params.archive_access.is_some_and(|v| v) && is_archive(path_metadata, &absolute_path) {
+        folder_data = archives::get_archive_data(absolute_path, params.changed_since)?;
+        
+    } else {
+        folder_data = folders::get_folder_data(absolute_path, params.changed_since)?;
+    }
 
-    let folder_data = FolderData {entries, absolute_path, parent_path};
     Ok(HttpResponse::Ok().json(folder_data))
 }
 
-fn get_canonical_path(path: &str) -> Result<String, Error> {
-    let absolute_path = String::from(fs::canonicalize(path)?.to_str()
-        .ok_or(ImgetError { message: String::from(format!("Path not found: {}", path)), status_code: StatusCode::NOT_FOUND})?);
-    Ok(absolute_path)
+fn is_archive(metadata: Metadata, path: &str) -> bool {
+    let extension = path::Path::new(path).extension();
+    if let Some(extension) = extension {
+        let extension = extension.to_str().unwrap_or("");
+        return metadata.is_file() && (extension == "zip" || extension == "rar" || extension == "7z");
+    }
+    false
 }
 
 #[derive(Deserialize)]
