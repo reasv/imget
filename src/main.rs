@@ -1,5 +1,5 @@
 use actix_files::NamedFile;
-use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer, get};
+use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer, get, http::StatusCode};
 use actix_web_actors::ws;
 use std::{path::PathBuf, time::UNIX_EPOCH, os::windows::prelude::MetadataExt};
 use tokio::sync::mpsc;
@@ -20,7 +20,11 @@ struct FileEntry {
     last_modified: u128,
     fsize: u64
 }
-
+#[derive(Serialize)]
+struct FolderData {
+    entries: Vec<FileEntry>,
+    absolute_path: String,
+}
 #[derive(Deserialize)]
 struct FolderRequestParam {
     path: String,
@@ -31,7 +35,7 @@ struct FolderRequestParam {
 async fn get_folder(web::Query(params): web::Query<FolderRequestParam>) -> Result<HttpResponse, Error> {
     let directory = params.path;
 
-    let entries = fs::read_dir(directory)?
+    let entries = fs::read_dir(&directory)?
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let metadata = entry.metadata().ok()?;
@@ -55,8 +59,12 @@ async fn get_folder(web::Query(params): web::Query<FolderRequestParam>) -> Resul
             })
         })
         .collect::<Vec<_>>();
+    
+    let absolute_path = String::from(fs::canonicalize(directory)?.to_str()
+        .ok_or(ImgetError { message: String::from("Directory not found"), status_code: StatusCode::NOT_FOUND})?);
 
-    Ok(HttpResponse::Ok().json(entries))
+    let folder_data = FolderData {entries, absolute_path};
+    Ok(HttpResponse::Ok().json(folder_data))
 }
 
 #[derive(Deserialize)]
