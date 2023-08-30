@@ -6,7 +6,7 @@ use std::fs;
 
 use crate::error::ImgetError;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct FileEntry {
     pub name: String,
     pub is_directory: bool,

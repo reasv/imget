@@ -1,6 +1,7 @@
 use actix_files::NamedFile;
 use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer, get};
 use actix_web_actors::ws;
+use folders::FolderData;
 use std::{path::{PathBuf, self}, fs::Metadata};
 use tokio::sync::mpsc;
 use serde::Deserialize;
@@ -27,13 +28,17 @@ async fn get_folder(web::Query(params): web::Query<FolderRequestParam>) -> Resul
     let directory = params.path;
     let absolute_path = folders::get_canonical_path(&directory)?;
     let path_metadata = fs::metadata(&absolute_path)?;
+    let archive_access = params.archive_access.unwrap_or(false);
     
-    let folder_data;
-    if !path_metadata.is_dir() && params.archive_access.is_some_and(|v| v) && is_archive(path_metadata, &absolute_path) {
+    let mut folder_data;
+    if !path_metadata.is_dir() && archive_access && is_archive(path_metadata, &absolute_path) {
         folder_data = archives::get_archive_data(absolute_path, params.changed_since)?;
         
     } else {
         folder_data = folders::get_folder_data(absolute_path, params.changed_since)?;
+        if archive_access {
+            folder_data = archive_as_folder(folder_data);
+        }
     }
 
     Ok(HttpResponse::Ok().json(folder_data))
@@ -48,16 +53,37 @@ fn is_archive(metadata: Metadata, path: &str) -> bool {
     false
 }
 
+fn archive_as_folder(mut folder_data: FolderData) -> FolderData {
+    let archive_extensions: Vec<&str> = vec!["zip", "rar", "7z"];
+    for entry in folder_data.entries.iter_mut() {
+        if !entry.is_directory {
+            let extension = path::Path::new(&entry.name).extension().unwrap_or_default().to_str().unwrap_or("");
+            if archive_extensions.contains(&extension) {
+                // Treat archive files as folders
+                entry.is_directory = true;
+            }
+        }
+    }
+    return folder_data;
+}
+
 #[derive(Deserialize)]
 struct FileRequestParam {
     path: String,
 }
 
 #[get("/file")]
-async fn static_files(web::Query(params): web::Query<FileRequestParam>) -> Result<NamedFile, Error> {
+async fn static_files(web::Query(params): web::Query<FileRequestParam>, req: HttpRequest) -> Result<HttpResponse, Error> {
     let path: PathBuf = PathBuf::from(params.path);
-    let file = NamedFile::open(path)?;
-    Ok(file)
+    match NamedFile::open_async(&path).await {
+        Ok(file) => Ok(file.into_response(&req)),
+        Err(e) => {
+            if let Some(buf) = archives::try_archive_file(path) {
+                return Ok(HttpResponse::Ok().body(buf));
+            }
+            Err(e.into())
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -81,11 +107,11 @@ async fn get_thumbnail(web::Query(params): web::Query<ThumbnailRequestParam>) ->
 
     let thumb_path = PathBuf::from(format!("./thumbs/{}-w{}h{}-hq-{}.jpeg", hash, max_w, max_h, params.hq.unwrap_or(false)));
 
-    match NamedFile::open(&thumb_path) {
+    match NamedFile::open_async(&thumb_path).await {
         Ok(file) => Ok(file),
         Err(_) => {
             thumbnails::generate_thumbnail(img, max_h, max_w, &thumb_path, params.hq)?;
-            let file = NamedFile::open(thumb_path)?;
+            let file = NamedFile::open_async(thumb_path).await?;
             Ok(file)
         }
     }
