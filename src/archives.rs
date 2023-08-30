@@ -1,6 +1,5 @@
 use actix_web::Error;
 use unrar::{Archive, error::UnrarError};
-use core::arch;
 use std::path::{Path, PathBuf};
 use crate::folders::{FolderData, FileEntry};
 
@@ -52,7 +51,7 @@ pub fn get_archive_subfolder(folder_data: FolderData, sub_folder: String) -> Res
             absolute_path = entry.absolute_path.clone();
         }
         // Is this entry in the subfolder?
-        if (entry.name.starts_with(&sub_folder)) {
+        if entry.name.starts_with(&sub_folder) {
             let name_path = Path::new(&entry.name);
             let entry_parent = name_path.parent()?;
             println!("{:?}", entry_parent);
@@ -108,29 +107,4 @@ pub fn try_archive_file(full_path: PathBuf) -> Option<Vec<u8>> {
     let inner_path = inner_path.to_str()?;
     let data = get_archive_file(archive_path.to_string(), inner_path.to_string()).ok()?;
     return data
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_add() {
-        
-        //println!("{:?}", fdata.entries[0]);
-        // let data = get_archive_file("thumbs\\test.zip\\test.rar\\Rapiere.rar".to_string(), fdata.entries[0].name.to_string()).unwrap();
-        //println!("{:?}", data.is_some());
-
-        // split_archive_path(fdata.entries[0].absolute_path.clone());
-
-        // println!("{}", try_archive_file(PathBuf::from(fdata.entries[0].absolute_path.clone()).to_path_buf()).is_some());
-        let fullpath = "\\\\?\\Q:\\projects\\imget\\thumbs\\test.zip\\test.rar\\Rapiere.rar\\Rapiere CH 8 PNG".to_string();
-
-        let (archive_path, inner_path) = split_archive_path(PathBuf::from(fullpath)).unwrap();
-
-        let fdata = get_archive_data(archive_path.to_str().unwrap().to_string(), None).unwrap();
-
-        println!("{:?}", get_archive_subfolder(fdata, inner_path.to_str().unwrap().to_string()).unwrap());
-
-    }
 }

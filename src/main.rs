@@ -20,20 +20,41 @@ use error::ImgetError;
 struct FolderRequestParam {
     path: String,
     changed_since: Option<u128>,
-    archive_access: Option<bool>
+    archive_access: Option<bool>,
+    flatten_archives: Option<bool>
 }
 
 #[get("/folder")]
 async fn get_folder(web::Query(params): web::Query<FolderRequestParam>) -> Result<HttpResponse, Error> {
     let directory = params.path;
-    let absolute_path = folders::get_canonical_path(&directory)?;
+    let abs_path_res = folders::get_canonical_path(&directory);
+    
+    if abs_path_res.is_err() {
+        if let Some((archive_path, inner_path)) = archives::split_archive_path(PathBuf::from(directory)) {
+
+            let fdata_raw = archives::get_archive_data(archive_path.to_str().unwrap().to_string(), None).unwrap();
+            let folder_data = archives::get_archive_subfolder(fdata_raw, inner_path.to_str().unwrap().to_string()).unwrap();
+
+            return Ok(HttpResponse::Ok().json(folder_data))
+        }
+        return Ok(HttpResponse::NotFound().finish());
+    }
+
+    let absolute_path = abs_path_res?;
     let path_metadata = fs::metadata(&absolute_path)?;
     let archive_access = params.archive_access.unwrap_or(false);
+    let flatten_archives = params.flatten_archives.unwrap_or(false);
     
     let mut folder_data;
     if !path_metadata.is_dir() && archive_access && is_archive(path_metadata, &absolute_path) {
-        folder_data = archives::get_archive_data(absolute_path, params.changed_since)?;
-        
+        let mut folder_data_flat = archives::get_archive_data(absolute_path, params.changed_since)?;
+        if flatten_archives {
+            // Cannot use directories if flattened
+            folder_data_flat.entries.retain(|e| !e.is_directory);
+            folder_data = folder_data_flat;
+        } else {
+            folder_data = archives::get_archive_subfolder(folder_data_flat, "".to_string())?;
+        }
     } else {
         folder_data = folders::get_folder_data(absolute_path, params.changed_since)?;
         if archive_access {
