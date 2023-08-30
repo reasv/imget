@@ -15,7 +15,7 @@ pub struct FileEntry {
     pub absolute_path: String,
     pub parent_path: String,
 }
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct FolderData {
     pub entries: Vec<FileEntry>,
     pub absolute_path: String,

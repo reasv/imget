@@ -1,5 +1,6 @@
 use actix_web::Error;
 use unrar::{Archive, error::UnrarError};
+use core::arch;
 use std::path::{Path, PathBuf};
 use crate::folders::{FolderData, FileEntry};
 
@@ -35,6 +36,37 @@ pub fn get_archive_data(absolute_path: String, changed_since: Option<u128>) -> R
         absolute_path,
         parent_path: None,
     })
+}
+
+pub fn get_archive_subfolder(archive_path: String, changed_since: Option<u128>, sub_folder: String) -> Result<FolderData, Error> {
+    let mut folder_data = get_archive_data(archive_path.clone(), changed_since)?;
+    let archive_path_obj = Path::new(archive_path.as_str());
+
+    let sub_folder_path = Path::new(&sub_folder);
+    let sub_folder_path_abs = archive_path_obj.join(sub_folder_path);
+    let parent_path = sub_folder_path_abs.parent().map(|p| p.to_str().unwrap_or("").to_string());
+
+    let filtered_entries: Vec<FileEntry> = folder_data.entries.iter_mut().filter_map(|entry|  {
+        if entry.name == sub_folder {
+            folder_data.absolute_path = entry.absolute_path.clone();
+        }
+        // Is this entry in the subfolder?
+        if (entry.name.starts_with(&sub_folder)) {
+            let name_path = Path::new(&entry.name);
+            let entry_parent = name_path.parent()?;
+            println!("{:?}", entry_parent);
+            // Is the subfolder the direct parent of this entry?
+            if entry_parent.to_str()?.to_string() == sub_folder {
+                let name = name_path.file_name()?.to_str()?.to_string();
+                let parent_path = Path::new(&entry.absolute_path).parent()?.to_str()?.to_string();
+                return Some(FileEntry { name, parent_path,
+                    is_directory: entry.is_directory, last_modified: entry.last_modified, fsize: entry.fsize, absolute_path: entry.absolute_path.clone()});
+            }
+        }
+        return None;
+    }).collect();
+
+    return Ok(FolderData { entries: filtered_entries, absolute_path: folder_data.absolute_path, parent_path });
 }
 
 pub fn get_archive_file(archive_path: String, filename: String) -> Result<Option<Vec<u8>>, UnrarError> {
@@ -90,7 +122,9 @@ mod tests {
 
         // split_archive_path(fdata.entries[0].absolute_path.clone());
 
-        println!("{}", try_archive_file(PathBuf::from(fdata.entries[0].absolute_path.clone()).to_path_buf()).is_some());
+        // println!("{}", try_archive_file(PathBuf::from(fdata.entries[0].absolute_path.clone()).to_path_buf()).is_some());
+
+        println!("{:?}", get_archive_subfolder("\\\\?\\Q:\\projects\\imget\\thumbs\\test.zip\\test.rar\\Rapiere.rar".to_string(), None, "".to_string()).unwrap());
 
     }
 }
