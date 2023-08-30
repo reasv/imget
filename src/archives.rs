@@ -54,7 +54,6 @@ pub fn get_archive_subfolder(folder_data: FolderData, sub_folder: String) -> Res
         if entry.name.starts_with(&sub_folder) {
             let name_path = Path::new(&entry.name);
             let entry_parent = name_path.parent()?;
-            println!("{:?}", entry_parent);
             // Is the subfolder the direct parent of this entry?
             if entry_parent.to_str()?.to_string() == sub_folder {
                 let name = name_path.file_name()?.to_str()?.to_string();
