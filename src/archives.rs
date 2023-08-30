@@ -38,17 +38,18 @@ pub fn get_archive_data(absolute_path: String, changed_since: Option<u128>) -> R
     })
 }
 
-pub fn get_archive_subfolder(archive_path: String, changed_since: Option<u128>, sub_folder: String) -> Result<FolderData, Error> {
-    let mut folder_data = get_archive_data(archive_path.clone(), changed_since)?;
-    let archive_path_obj = Path::new(archive_path.as_str());
+pub fn get_archive_subfolder(folder_data: FolderData, sub_folder: String) -> Result<FolderData, Error> {
+    let archive_path_obj = Path::new(folder_data.absolute_path.as_str());
 
     let sub_folder_path = Path::new(&sub_folder);
     let sub_folder_path_abs = archive_path_obj.join(sub_folder_path);
     let parent_path = sub_folder_path_abs.parent().map(|p| p.to_str().unwrap_or("").to_string());
 
-    let filtered_entries: Vec<FileEntry> = folder_data.entries.iter_mut().filter_map(|entry|  {
+    let mut absolute_path = folder_data.absolute_path;
+
+    let filtered_entries: Vec<FileEntry> = folder_data.entries.iter().filter_map(|entry|  {
         if entry.name == sub_folder {
-            folder_data.absolute_path = entry.absolute_path.clone();
+            absolute_path = entry.absolute_path.clone();
         }
         // Is this entry in the subfolder?
         if (entry.name.starts_with(&sub_folder)) {
@@ -66,7 +67,7 @@ pub fn get_archive_subfolder(archive_path: String, changed_since: Option<u128>, 
         return None;
     }).collect();
 
-    return Ok(FolderData { entries: filtered_entries, absolute_path: folder_data.absolute_path, parent_path });
+    return Ok(FolderData { entries: filtered_entries, absolute_path, parent_path });
 }
 
 pub fn get_archive_file(archive_path: String, filename: String) -> Result<Option<Vec<u8>>, UnrarError> {
@@ -115,16 +116,21 @@ mod tests {
 
     #[test]
     fn test_add() {
-        let fdata = get_archive_data(String::from("thumbs\\test.zip\\test.rar\\Rapiere.rar"), None).unwrap();
+        
         //println!("{:?}", fdata.entries[0]);
-        let data = get_archive_file("thumbs\\test.zip\\test.rar\\Rapiere.rar".to_string(), fdata.entries[0].name.to_string()).unwrap();
+        // let data = get_archive_file("thumbs\\test.zip\\test.rar\\Rapiere.rar".to_string(), fdata.entries[0].name.to_string()).unwrap();
         //println!("{:?}", data.is_some());
 
         // split_archive_path(fdata.entries[0].absolute_path.clone());
 
         // println!("{}", try_archive_file(PathBuf::from(fdata.entries[0].absolute_path.clone()).to_path_buf()).is_some());
+        let fullpath = "\\\\?\\Q:\\projects\\imget\\thumbs\\test.zip\\test.rar\\Rapiere.rar\\Rapiere CH 8 PNG".to_string();
 
-        println!("{:?}", get_archive_subfolder("\\\\?\\Q:\\projects\\imget\\thumbs\\test.zip\\test.rar\\Rapiere.rar".to_string(), None, "".to_string()).unwrap());
+        let (archive_path, inner_path) = split_archive_path(PathBuf::from(fullpath)).unwrap();
+
+        let fdata = get_archive_data(archive_path.to_str().unwrap().to_string(), None).unwrap();
+
+        println!("{:?}", get_archive_subfolder(fdata, inner_path.to_str().unwrap().to_string()).unwrap());
 
     }
 }
